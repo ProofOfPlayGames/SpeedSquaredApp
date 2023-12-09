@@ -26,7 +26,19 @@ import android.widget.TextView;
 import androidx.annotation.NonNull;
 
 import com.alvinalexander.rectangledemo.CustomView2;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
+//import org.apache.http.HttpEntity;
+//import org.apache.http.HttpResponse;
+//import org.apache.http.NameValuePair;
+//import org.apache.http.client.ClientProtocolException;
+//import org.apache.http.client.HttpClient;
+//import org.apache.http.client.entity.UrlEncodedFormEntity;
+//import org.apache.http.client.methods.HttpPost;
+//import org.apache.http.impl.client.HttpClients;
+//import org.apache.http.message.BasicNameValuePair;
+import org.sol4k.Base58;
 import org.sol4k.PublicKey;
 
 import java.io.File;
@@ -34,9 +46,19 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
+
+//import okhttp3.Call;
+//import okhttp3.Callback;
+//import okhttp3.Request;
+//import okhttp3.Response;
 
 public class MainActivity extends Activity {
 
@@ -45,6 +67,11 @@ public class MainActivity extends Activity {
     DisplayMetrics displayMetrics = new DisplayMetrics();
     Random rand = new Random();
     int[] colors = new int[9];
+
+    Button connectButton;
+
+    Button playButton;
+    Button leaderboardButton;
 
 
     int height;
@@ -61,10 +88,11 @@ public class MainActivity extends Activity {
     ValueAnimator widthAnimator;
     View timerBox;
     int startingTimerWidth = 270;
-    int timerLength = 5000;
+    int timerLength = 5400;
     boolean squares = false;
     boolean startTimer = false;
     Phantom phantom;
+    MyUtils myUtils = new MyUtils(thiss);
 
 
     View.OnClickListener clickSquare = new View.OnClickListener() {
@@ -79,8 +107,12 @@ public class MainActivity extends Activity {
                 scoreLabel.setText(""+score);
                 timerBox.getLayoutParams().width = startingTimerWidth;
                 widthAnimator.cancel();
-                if(timerLength > 1000){
-                    timerLength = timerLength - 500;
+                if (timerLength > 3600) {
+                    timerLength = timerLength - 200;
+                } else if (timerLength > 1800) {
+                    timerLength = timerLength - 100;
+                } else if (timerLength > 0.45) {
+//                timer = timer - 0.005
                 }
                 widthAnimator.setDuration(timerLength);
                 widthAnimator.start();
@@ -99,6 +131,25 @@ public class MainActivity extends Activity {
             }
         }
     };
+
+
+    protected void changeMenuColors(){
+
+//        final Handler handler = new Handler(Looper.getMainLooper());
+//        handler.postDelayed(new Runnable() {
+//            @Override
+        new android.os.Handler(Looper.getMainLooper()).postDelayed(
+                new Runnable() {
+                    public void run() {
+                        playButton.setBackgroundColor(colors[rand.nextInt(9)]);
+                        leaderboardButton.setBackgroundColor(colors[rand.nextInt(9)]);
+                        connectButton.setBackgroundColor(colors[rand.nextInt(9)]);
+                        changeMenuColors();
+                    }
+                },
+                1000);
+    }
+
 
     protected void runSquares(){
 
@@ -121,7 +172,7 @@ public class MainActivity extends Activity {
     }
 
     protected void runTimer(){
-        widthAnimator.setDuration(5000);
+        widthAnimator.setDuration(5400);
         widthAnimator.setInterpolator(new LinearInterpolator());
         widthAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
             @Override
@@ -137,67 +188,123 @@ public class MainActivity extends Activity {
     }
 
 
+    public Uri response1And2Same(Intent intent){
+        byte[] secret = myUtils.readPermanent("my-secret", 44);
+        phantom = new Phantom(thiss, secret);
+        return intent.getData();
+    }
+
+    public void handleFirstResponse(String phantomEncryptPK, Uri data){
+        String nonce = data.getQueryParameter("nonce");
+        String encryptedData = data.getQueryParameter("data");
+        myUtils.savePermanent("phantom-public", Base58.decode(phantomEncryptPK));
+        phantom.signMessage(phantomEncryptPK, nonce, encryptedData, myUtils);
+    }
+
+
+    public void handleSecondResponse(Uri data){
+        System.out.println("Second response data: " + data);
+        String phantomEncryptPK = null;
+        FileInputStream fin = null;
+        byte [] phantomPublic = myUtils.readPermanent("phantom-public", 44);
+        byte [] userPublicKey = myUtils.readPermanent("user-public", 44);
+        phantomEncryptPK = Base58.encode(phantomPublic);
+        System.out.println("Phantom public 2nd response: " + phantomEncryptPK);
+        String nonce = data.getQueryParameter("nonce");
+        String encryptedData = data.getQueryParameter("data");
+
+        System.out.println("helloooooooooo6");
+        String userPublicS = new String(userPublicKey, StandardCharsets.UTF_8);
+        String sig = phantom.readSig(phantomEncryptPK, nonce, encryptedData);
+        sendPublic(sig, userPublicS);
+
+
+//        myUtils.post("https://104.236.68.131:3006/login", json, new Callback() {
+//                @Override
+//                public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
+//                    if (response.isSuccessful()) {
+//                        String responseStr = response.body().string();
+//                        System.out.println(responseStr);
+//                        // Do what you want to do with the response.
+//                    } else {
+//                        System.out.println("what the fuck happened wrong?");
+//                    }
+//                }
+//
+//                @Override
+//                public void onFailure(@NonNull Call call, @NonNull IOException e) {
+//                    System.out.println("beep beep beep failure!");
+//                }
+//            });
+
+    }
+
+
+    public void sendPublic(String sig, String userPublicS){
+        long epoch = System.currentTimeMillis();
+        String epochString = Long.toString(epoch);
+        String encryptedMsg = Encrypt.encryptLogin(sig, userPublicS, epochString);
+
+//        List<NameValuePair> params = new ArrayList<NameValuePair>(2);
+////        ["epoch": epoch, "msg": enc]
+//        params.add(new BasicNameValuePair("epoch", epochString));
+//        params.add(new BasicNameValuePair("msg", Encrypt.encryptLogin(sig, new String(userPublicKey, StandardCharsets.UTF_8), epochString)));
+//        System.out.println("helloooooooooo5");
+//        myUtils.sendRequest("104.236.68.131:3006/login", params);
+        String json = "{\"epoch\": \"" + epochString + "\", \"msg\": \"" + encryptedMsg + "\"}";
+        System.out.println(json);
+        Thread t1 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+//                try {
+//                    myUtils.httpPost("http://104.236.68.131:3006/login", json);
+                String response = myUtils.httpsPost("https://104.236.68.131:3004/login", json);
+                JsonParser jsonParser = new JsonParser();
+                JsonObject jsonObjectOutput
+                        = (JsonObject)jsonParser.parse(
+                        response);
+                String msg = jsonObjectOutput.get("encRes").getAsString();
+                System.out.println(msg);
+
+                System.out.println(userPublicS);
+                String login_token = Encrypt.decryptLogin(msg, userPublicS, epochString);
+                System.out.println(login_token);
+                myUtils.savePermanent("login-token", login_token.getBytes());
+                myUtils.savePermanent("signature", sig.getBytes());
+
+//            usernameOrPubKey: (signature != nil ? pub_key : username)!, epoch: epoch, msgEnc: res["encRes"] as! String)
+//                } catch (IOException e) {
+//                    throw new RuntimeException(e);
+//                }
+            }
+        });
+        t1.start();
+    }
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.main_layout); //CustomView2.generateViewId());
-
+        setContentView(R.layout.main_layout);
+        System.out.println("helloooooooooo9");
         Intent intent = getIntent();
-        System.out.println(intent);
-        System.out.println(intent.getAction());
         if(intent.getAction() == "android.intent.action.VIEW") {
-            try {
-                FileInputStream fin = openFileInput("phantom-secret");
-//                String secret = "";
-//                int i;
-//                while ((i = fin.read()) != -1) {
-//                    System.out.println(i);
-//                    secret = secret + Character.toString((char) i);
-//                }
-                byte[] secret = new byte[32];
-                fin.read(secret);
-
-                System.out.println("hehehehehehhe");
-                System.out.println(secret);
-                phantom = new Phantom(thiss, secret);
-            } catch (FileNotFoundException e) {
-                throw new RuntimeException(e);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            String action = intent.getAction();
-            Uri data = intent.getData();
-            System.out.println(data);
-            System.out.println(data.getQueryParameterNames());
+            System.out.println("helloooooooooo8");
+            // BOTH INCOMING PHANTOM RESPONSES
+            Uri data = response1And2Same(intent);
             String phantomEncryptPK = data.getQueryParameter("phantom_encryption_public_key");
-            System.out.println(phantomEncryptPK);
-            System.out.println(Base58.decode(phantomEncryptPK).length);
-            String nonce = data.getQueryParameter("nonce");
-            String encryptedData = data.getQueryParameter("data");
-            System.out.println(nonce);
-            System.out.println(encryptedData);
-            System.out.println(phantomEncryptPK);
-            System.out.println(new PublicKey(phantom.kp.getSecretKey()).toString());
-            phantom.signMessage(phantomEncryptPK, nonce, encryptedData);
+            if (phantomEncryptPK != null) {
+                // FIRST RESPONSE ONLY
+                handleFirstResponse(phantomEncryptPK, data);
+            }else{
+                // SECOND RESPONSE ONLY
+                handleSecondResponse(data);
+            }
         }else{
-//            if(!f.exists()) {
+            // ORIGINAL OUTGOING PHANTOM REQUEST
                 phantom = new Phantom(thiss);
-                try {
-                    System.out.println("iiiiiiiiiiiiiiiiiiii");
-                    System.out.println(phantom.kp.getSecretKey().toString());
-//                    File appFilesDirectory = thiss.getFilesDir();
-//                    File q = new File(appFilesDirectory, "phantom-secret");
-//
-                    FileOutputStream outputStream;
-                    outputStream = openFileOutput("phantom-secret", Context.MODE_PRIVATE);
-                    outputStream.write(phantom.kp.getSecretKey());
-                    outputStream.close();
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-//            }
+                myUtils.savePermanent("my-secret", phantom.kp.getSecretKey());
         }
 
         colors[0] = Color.RED;
@@ -263,11 +370,28 @@ public class MainActivity extends Activity {
 
     protected void gameEnd(){
         new AlertDialog.Builder(thiss)
-                .setTitle("messege")
-                .setPositiveButton("ok", null)
-                .setMessage( "user name : steven" + "/n" +
-                        "password : stevennn" + "/n"  )
+                .setTitle("Game End")
+                .setPositiveButton("OK", null)
+                .setMessage("You got " + score + "!")
                 .show();
+        long epoch = System.currentTimeMillis();
+        String publicKey = new String(myUtils.readPermanent("user-public", 44), StandardCharsets.UTF_8);
+        String loginToken = new String(myUtils.readPermanent("login-token", 48), StandardCharsets.UTF_8);
+//        System.out.println("SENDING SCORES");
+//        System.out.println(publicKey);
+//        System.out.println(loginToken);
+        String msg = Encrypt.encryptGeneral(loginToken, "{\"epoch\": \"" + epoch + "\", \"score\": " + score + ", \"pub_key\": \"" + publicKey + "\"}");
+//    System.out.println(msg);
+        String json = "{\"msg\": \"" + msg + "\", \"pub_key\": \"" + publicKey + "\"}";
+//        System.out.println(json);
+
+        Thread t1 = new Thread(new Runnable() {
+            @Override
+            public void run() {
+              myUtils.httpsPost("https://104.236.68.131:3004/score", json);
+            }
+        });
+        t1.start();
         showMenu();
     }
 
@@ -304,7 +428,7 @@ public class MainActivity extends Activity {
         squares = false;
         linearLayout.removeAllViews();
 
-        Button playButton = new Button(thiss);
+        playButton = new Button(thiss);
         playButton.setText("Play");
         playButton.setTextSize(72);
         playButton.setOnClickListener(playButtonClick);
@@ -314,7 +438,7 @@ public class MainActivity extends Activity {
         playerButtonLayoutParams.leftMargin = width/6;
         linearLayout.addView(playButton, playerButtonLayoutParams);
 
-        Button leaderboardButton = new Button(thiss);
+        leaderboardButton = new Button(thiss);
         leaderboardButton.setText("Leaders");
         leaderboardButton.setTextSize(63);
         leaderboardButton.setOnClickListener(leaderboardClick);
@@ -324,7 +448,7 @@ public class MainActivity extends Activity {
         leaderboardButtonLayoutParams.leftMargin = width/8;
         linearLayout.addView(leaderboardButton, leaderboardButtonLayoutParams);
 
-        Button connectButton = new Button(thiss);
+        connectButton = new Button(thiss);
         connectButton.setText("Connect");
         connectButton.setTextSize(63);
         connectButton.setOnClickListener(connectClick);
@@ -333,11 +457,15 @@ public class MainActivity extends Activity {
         connectButtonLayoutParams.topMargin = 1500;
         connectButtonLayoutParams.leftMargin = width/8;
         linearLayout.addView(connectButton, connectButtonLayoutParams);
+
+        changeMenuColors();
     }
 
 
     protected void showGame(){
         linearLayout.removeAllViews();
+        score = 0;
+        timerLength = 5400;
         scoreLabel = new TextView(thiss);
         scoreLabel.setX(width/2 + 270);
         scoreLabel.setY(36);
